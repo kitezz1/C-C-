@@ -9,8 +9,8 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
-//#include <ctype.h>
-//#include <netinet/in.h>
+#include <ctype.h>
+#include <netinet/in.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include "wrap.h"
