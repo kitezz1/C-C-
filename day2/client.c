@@ -21,7 +21,7 @@ int main(){
 	char buf[1024];
 	cfd = Socket(AF_INET, SOCK_STREAM, 0);
 	client.sin_family = AF_INET;
-	client.sin_port = htons(8000);
+	client.sin_port = htons(6666);
 	inet_pton(AF_INET, "127.0.0.1", &client.sin_addr);
 	
 	Connect(cfd, (struct sockaddr*)&client, sizeof(client));
