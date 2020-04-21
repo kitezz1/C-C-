@@ -1,2 +1,2 @@
-server:serverEpoll.c wrap.c
-	gcc serverEpoll.c wrap.c -o server
+thread:threadPool.c
+	gcc threadPool.c -o thread -pthread
