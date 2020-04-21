@@ -1,3 +1,11 @@
-client:client.c wrap.c server.c
-	gcc client.c wrap.c -o client
-	gcc server.c wrap.c -o server -pthread
+obj=client.o wrap.o
+target=client
+
+CC = gcc
+#CPPFLAGS = -I
+
+$(target):$(obj)
+	$(CC) $(obj) -o $(target)
+
+%.o:%.c
+	$(CC) -c $< -o $@
