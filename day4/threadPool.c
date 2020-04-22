@@ -96,7 +96,7 @@ threadpool_t *threadpool_create(int min_thr_num, int max_thr_num, int queue_max_
 		}
 		for(i=0; i<min_thr_num; i++){
 			pthread_create(&(pool->threads[i]), NULL, threadpool_thread, (void*)pool);
-			printf("start thread %d..\n", pool->threads[i]);
+			printf("start thread %x..\n",(unsigned int) pool->threads[i]);
 		}
 		pthread_create(&(pool->adjust_tid), NULL, adjust_thread, (void *)pool);
 		return pool;
@@ -140,15 +140,19 @@ void *threadpool_thread(void *threadpool){
 		pthread_mutex_lock(&(pool->lock));
 
 		while((pool->queue_size == 0) && (!pool->shutdown)){
-			printf("thread %d is waiting\n", pthread_self());
+			printf("thread %x is waiting\n",(unsigned int)pthread_self());
 			pthread_cond_wait(&(pool->queue_not_empty), &(pool->lock));
-			
+		
 			if(pool->wait_exit_thr_num > 0){
 				pool->wait_exit_thr_num--;
-				
+				printf("wait exit thr num = %d\n", pool->wait_exit_thr_num);			
 				if(pool->live_thr_num > pool->min_thr_num){
-					printf("thread %d is exiting", pthread_self());
+					printf("thread %x is exiting", (unsigned int)pthread_self());
 					pool->live_thr_num--;
+					
+					//pool->wait_exit_thr_num--;
+					//printf("wait exit thr num = %d\n", pool->wait_exit_thr_num);			
+					
 					pthread_mutex_unlock(&(pool->lock));
 					pthread_exit(NULL);
 				}
@@ -156,7 +160,7 @@ void *threadpool_thread(void *threadpool){
 		}
 		if(pool->shutdown){
 			pthread_mutex_unlock(&(pool->lock));
-			printf("thread%d is exiting\n", pthread_self());
+			printf("thread%x is exiting\n",(unsigned int)pthread_self());
 			pthread_exit(NULL);
 		}
 		task.function = pool->task_queue[pool->queue_front].function;
@@ -169,13 +173,13 @@ void *threadpool_thread(void *threadpool){
 
 		pthread_mutex_unlock(&(pool->lock));
 
-		printf("thread %d start working\n", pthread_self());
+		printf("thread %x start working\n", (unsigned int)pthread_self());
 		pthread_mutex_lock(&(pool->thread_counter));
 		pool->busy_thr_num++;
 		pthread_mutex_unlock(&(pool->thread_counter));
 		(*(task.function))(task.arg);
 
-		printf("thread %d end working\n", pthread_self());
+		printf("thread %x end working\n", (unsigned int)pthread_self());
 		pthread_mutex_lock(&(pool->thread_counter));
 		pool->busy_thr_num--;
 		pthread_mutex_unlock(&(pool->thread_counter));
@@ -188,8 +192,8 @@ void *adjust_thread(void *threadpool){
 	int i;
 	threadpool_t *pool = (threadpool_t *) threadpool;
 	while(!pool->shutdown){
-		sleep(DEFAULT_TIME);
-
+		//sleep(DEFAULT_TIME);
+		sleep(1);
 		pthread_mutex_lock(&(pool->lock));
 		int queue_size = pool->queue_size;
 		int live_thr_num = pool->live_thr_num;
@@ -198,7 +202,7 @@ void *adjust_thread(void *threadpool){
 		pthread_mutex_lock(&(pool->thread_counter));
 		int busy_thr_num = pool->busy_thr_num;
 		pthread_mutex_unlock(&(pool->thread_counter));
-
+		printf("<<<<<busy=%d, live_thr_num=%d\n", busy_thr_num, live_thr_num);
 		if(queue_size >= MIN_WAIT_TASK_NUM && live_thr_num < pool->max_thr_num){
 			pthread_mutex_lock(&(pool->lock));
 			int add = 0;
@@ -288,8 +292,8 @@ int is_thread_alive(pthread_t tid){
 
 
 void *process(void *arg){
-	printf("thread %d is working on task %d \n", pthread_self(), (int)arg);
-	sleep(1);
+	printf("thread %x is working on task %d \n",(unsigned int) pthread_self(), (int)arg);
+	sleep((int)arg);
 	printf("task %d is end\n", (int)arg);
 	return NULL;
 }
@@ -301,9 +305,16 @@ int main(){
 	for(i=0; i<20; i++){
 		num[i]=i;
 		printf("add_task %d \n", i);
-		threadpool_add(thp, process, (void*)&num[i]);
+		threadpool_add(thp, process, (void*)num[i]);
 	}
-	sleep(10);
+	sleep(30);
+
+	for(i=0; i<15; i++){
+		num[i]=i;
+		printf("add_task %d \n", i);
+		threadpool_add(thp, process, (void*)num[i]);
+	}
+	sleep(500);
 	threadpool_destory(thp);
 	return 0;
 }
