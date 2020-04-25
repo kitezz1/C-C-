@@ -314,6 +314,7 @@ int main(){
 		printf("add_task %d \n", i);
 		threadpool_add(thp, process, (void*)num[i]);
 	}
+	thp->shutdown = true;
 	sleep(500);
 	threadpool_destory(thp);
 	return 0;

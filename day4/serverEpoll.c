@@ -28,17 +28,17 @@ int main(){
 
 	struct sockaddr_in cliAddr, serverAddr;
 	struct epoll_event tep, ep[OPEN_MAX];
-
-	lfd = Socket(AF_INET, SOCK_STREAM, 0);
+	lfd = tcp4bind(SERV_PORT, NULL);
+	//lfd = Socket(AF_INET, SOCK_STREAM, 0);
 	int opt = 1;
 	setsockopt(lfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 	
-	bzero(&serverAddr, sizeof(serverAddr));
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serverAddr.sin_port = htons(SERV_PORT);
+	//bzero(&serverAddr, sizeof(serverAddr));
+	//serverAddr.sin_family = AF_INET;
+	//serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	//serverAddr.sin_port = htons(SERV_PORT);
 
-	Bind(lfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+	//Bind(lfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
 	Listen(lfd, 20);
 
 	efd = epoll_create(OPEN_MAX);

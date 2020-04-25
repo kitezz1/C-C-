@@ -74,6 +74,12 @@ void create_objects()
 	/* Our "Video" datatype: */
 	root=cJSON_CreateObject();	
 	cJSON_AddItemToObject(root, "name", cJSON_CreateString("Jack (\"Bee\") Nimble"));
+	printf("\n>>>>>>>>>>>>>>>\n");
+
+	char *sout = cJSON_Print(root);
+	printf("%s", sout);
+
+	printf("\n<<<<<<<<<<<<<<<\n");
 	cJSON_AddItemToObject(root, "format", fmt=cJSON_CreateObject());
 	cJSON_AddStringToObject(fmt,"type",		"rect");
 	cJSON_AddNumberToObject(fmt,"width",		1920);

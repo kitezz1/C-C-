@@ -2,7 +2,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
+#include <strings.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 
 void perr_exit(const char *s)
 {
@@ -231,4 +234,22 @@ ssize_t Readline(int fd, void *vptr, size_t maxlen)
     return n;
 }
 
+int tcp4bind(short port, const char* IP){
+	struct sockaddr_in serv_addr;
+	int lfd = Socket(AF_INET, SOCK_STREAM ,0);
+	bzero(&serv_addr, sizeof(serv_addr));
+	if(IP == NULL){
+		serv_addr.sin_addr.s_addr = INADDR_ANY;
+	}else {
+		if(inet_pton(AF_INET, IP, &serv_addr.sin_addr.s_addr) <= 0){
+			perror(IP);
+			exit(1);
+		}
+	}
+	serv_addr.sin_family = AF_INET;
+	serv_addr.sin_port = htons(port);
+
+	Bind(lfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+	return lfd;
+}
 //wrap.c
