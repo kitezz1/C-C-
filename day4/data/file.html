@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"  />
+    <title>bbb</title>
+</head>
+<body style="background-color:MediumSeaGreen">
+    <p>
+         <strong>2020</strong>年，我校工商管理（MBA）、公共管理（MPA）一志愿上线人数均已超过招生计划数，暂时不接受调剂
+    </p><!-- comment-->
+
+    <font size="7" color="#FF0000">cctv 是央视 </font>
+<!--    <meta http-equiv="refresh" content="5;url=http://www.baidu.com/">-->
+<!--<img src="a.png" alt="girl">-->
+    <br>
+    <form action="http://www.swjtu.xyz:5000" method="post">
+        <br>
+        <input type="file" id="testFile" name="testFile" accept="application/pdf">
+
+        <br>
+        提  交: <input type="submit" name="st">
+    </form>
+    <script>
+        function fileUpload() {
+        var formData = new FormData();
+        var fileName = $('#testFile').val();
+        var files = $('#testFile')[0].files[0];
+        formData.append("File", files);
+        formData.append("FileName", fileName);
+        // 以及一些其它要传入的参数
+        // formData.append(key, value);
+
+        $.ajax({
+            url: "后台上传地址",
+            type: 'POST',
+            data: formData,
+            dataType:'json',
+            processData: false,// ⑧告诉jQuery不要去处理发送的数据
+            contentType: false, // ⑨告诉jQuery不要去设置Content-Type请求头
+            success: function (res) {
+                console.log(res)
+            }
+        });
+    }
+
+    </script>
+</body>
+</html>

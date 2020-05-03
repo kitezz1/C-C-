@@ -1,0 +1,1709 @@
+#ifndef HELPER_H
+#define HEKPER_H
+#include<opencv2\opencv.hpp>
+#include <opencv\cv.h> 
+#include<fstream>
+#include"globalmatting.h"
+#include"guidedfilter.h"
+#include<io.h>
+#include<direct.h>
+#include<iostream>
+#include<Windows.h>
+#include<commdlg.h>
+#include<vector>
+#include<stack>
+#include"OneCut.h"
+#include"Mask.h"
+#include <math.h>
+#include"FaceDetectionHeader\face_detection.h"
+#include "stdafx.h"
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include "image.h"
+#include "misc.h"
+#include "pnmfile.h"
+#include "segment-image.h"
+#include "OpencvLoad.h"
+#include"moban.h"
+#include<map>
+#include "ldmarkmodel.h"
+cv::Mat face;
+cv::Rect face_rect(70, 120, 160, 160);
+cv::Mat convertTo3Channels(const cv::Mat& binImg);
+const std::string face_xml = "\\xml\\haarcascade_frontalface_alt2.xml"; //xml文件路径
+//cv::Mat cutAndResize(const cv::Mat& src,int&);
+//cv::Mat detectAndResize(cv::Mat&, int&);
+Table2D<ezi_RGB> Mat2Table2D(cv::Mat src);
+cv::Mat getReplace(Table2D<ezi_RGB>& resize, const Table2D<Label>& labeling, cv::Mat &bwflag, bool BW = false);
+void fillOneCut_and_trimap(cv::Mat& seg, const cv::Mat& ori, cv::Mat& trimap);
+cv::Mat Table2D2Mat(Table2D<ezi_RGB>& arr);
+std::string TCHAR2STRING(TCHAR* str);
+std::string exeFullPath();
+void beWhite(cv::Mat &image);
+void showImg(cv::Mat src, cv::Mat res, cv::Mat white);
+void result_img(std::string, std::string);
+using namespace cv;
+constexpr auto MAXNUM = 2 << 16;
+typedef struct triAngle {
+	Point2f src_[3];
+	Point2f dest_[3];
+}tria;
+
+tria area[6];
+
+void mls(/*Mat &src, */const vector<Point2f>& landmarks, int change, tria parea[])
+{
+
+	vector<Point2f> control_p = { landmarks[0],
+								landmarks[4],
+								landmarks[8],
+								landmarks[12],
+								landmarks[16],
+
+		//landmarks[31],
+		//landmarks[35],
+
+		landmarks[51]
+	};
+	vector<Point2f> control_q = { landmarks[0],
+								Point2f(landmarks[4].x + change,landmarks[4].y),
+								landmarks[8],
+								Point2f(landmarks[12].x - change,landmarks[12].y),
+								landmarks[16],
+
+		//landmarks[31],
+		//landmarks[35],
+		landmarks[51],
+	};
+
+
+
+	for (int k = 0; k < 6; k++)
+	{
+		for (int l = 0; l < 3; l++)
+		{
+
+			{
+				int i = parea[k].src_[l].x;
+				int j = parea[k].src_[l].y;
+				vector<float> weight_p;
+				//vector<float> weight_q;
+				vector<Point2f>::iterator itcp = control_p.begin();
+				//vector<Point2f>::iterator itcq = control_q.begin();
+				while (itcp != control_p.end())
+				{
+					double tmp;
+					if (itcp->x != i || itcp->y != j)
+						tmp = 1 / ((itcp->x - i)*(itcp->x - i) + (itcp->y - j)*(itcp->y - j));
+					else
+						tmp = MAXNUM;
+					weight_p.push_back(tmp);
+					++itcp;
+				}
+
+				double px = 0, py = 0, qx = 0, qy = 0, tw = 0;
+				itcp = control_p.begin();
+
+				vector<float>::iterator itwp = weight_p.begin();
+				vector<Point2f>::iterator itcq = control_q.begin();
+				while (itcp != control_p.end())
+				{
+					px += (*itwp)*(itcp->x);
+					py += (*itwp)*(itcp->y);
+					qx += (*itwp)*(itcq->x);
+					qy += (*itwp)*(itcq->y);
+
+					tw += *itwp;
+					++itcp;
+					++itcq;
+					++itwp;
+				}
+				px = px / tw;
+				py = py / tw;
+				qx = qx / tw;
+				qy = qy / tw;
+
+				Mat A = Mat::zeros(2, 1, CV_32FC1);
+				Mat B = Mat::zeros(1, 2, CV_32FC1);
+				Mat C = Mat::zeros(1, 2, CV_32FC1);
+				Mat sumL = Mat::zeros(2, 2, CV_32FC1);
+				Mat sumR = Mat::zeros(2, 2, CV_32FC1);
+				Mat M, pos;
+				for (int i = 0; i < weight_p.size(); ++i)
+				{
+					A.at<float>(0, 0) = (control_p[i].x - px);
+					A.at<float>(1, 0) = (control_p[i].y - py);
+					B.at<float>(0, 0) = weight_p[i] * ((control_p[i].x - px));
+					B.at<float>(0, 1) = weight_p[i] * ((control_p[i].y - py));
+					sumL += A * B;
+					C.at<float>(0, 0) = weight_p[i] * (control_q[i].x - qx);
+					C.at<float>(0, 1) = weight_p[i] * (control_q[i].y - qy);
+					sumR += A * C;
+				}
+				M = sumL.inv()*sumR;
+
+
+				B.at<float>(0, 0) = i - px;
+				B.at<float>(0, 1) = j - py;
+				C.at<float>(0, 0) = qx;
+				C.at<float>(0, 1) = qy;
+				pos = B * M + C;
+				int row = pos.at<float>(0, 0);
+				int col = pos.at<float>(0, 1);
+				parea[k].dest_[l].x = row;
+				parea[k].dest_[l].y = col;
+
+				/*		pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(j, i)[0];
+						pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(j, i)[1];
+						pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(j, i)[2];*/
+
+			}
+
+
+		}
+	}
+
+	//cv::imwrite("D:\\1.jpg", pic);
+}
+
+void thinFace(Mat &src, tria parea[])
+{
+	Mat pic = src.clone();
+	//cout << pic.rows<<pic.cols << endl;
+	for (int k = 0; k < 2; k++)
+	{
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[k].src_, area[k].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+
+		for (int y = parea[k].src_[0].y; y <= parea[k].src_[1].y; y++)
+		{
+			for (int x = (y - parea[k].src_[0].y)*(parea[k].src_[1].x - parea[k].src_[0].x) / (parea[k].src_[1].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x <= (y - parea[k].src_[0].y)*(parea[k].src_[2].x - parea[k].src_[0].x) / (parea[k].src_[2].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x++)
+			{
+
+				//Mat A = Mat::zeros(3, 1, CV_32FC1);
+				//Mat B=Mat::zeros(2,1,CV_64FC1);
+				//A.at<float>(0, 0) = x;
+				//A.at<float>(1, 0) = y;
+				//A.at<float>(2, 0) = 1;
+				//cout << A << endl;
+				//B = C * A;
+				int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+				int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+				//cout << row << "   " << col << endl;
+				pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+				pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+				pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+			}
+		}
+
+		for (int y = parea[k].src_[1].y; y <= parea[k].src_[2].y; y++)
+		{
+			for (int x = (y - parea[k].src_[1].y)*(parea[k].src_[2].x - parea[k].src_[1].x) / (parea[k].src_[2].y - parea[k].src_[1].y) + parea[k].src_[1].x;
+				x <= (y - parea[k].src_[0].y)*(parea[k].src_[2].x - parea[k].src_[0].x) / (parea[k].src_[2].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x++)
+			{
+
+				int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+				int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+				pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+				pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+				pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+			}
+
+		}
+
+
+	}
+	for (int y = parea[2].src_[0].y; y <= parea[2].src_[2].y; y++)
+	{
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[2].src_, area[2].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+		for (int x = (y - parea[2].src_[0].y)*(parea[2].src_[1].x - parea[2].src_[0].x) / (parea[2].src_[1].y - parea[2].src_[0].y) + parea[2].src_[0].x;
+			x <= parea[2].src_[2].x;
+			x++)
+		{
+
+			int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+			int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+			pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+			pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+			pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+		}
+	}
+	for (int y = parea[2].src_[1].y; y <= parea[2].src_[2].y; y++)
+	{
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[2].src_, area[2].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+		for (int x = (y - parea[2].src_[1].y)*(parea[2].src_[2].x - parea[2].src_[1].x) / (parea[2].src_[2].y - parea[2].src_[1].y) + parea[2].src_[1].x;
+			x <= parea[2].src_[2].x;
+			x++)
+		{
+
+			int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+			int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+			pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+			pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+			pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+		}
+
+	}
+
+
+	for (int y = parea[3].src_[0].y; y <= parea[3].src_[2].y; y++)
+	{
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[3].src_, area[3].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+		for (int x = parea[3].src_[2].x;
+			x <= (y - parea[3].src_[0].y)*(parea[3].src_[2].x - parea[3].src_[0].x) / (parea[3].src_[2].y - parea[3].src_[0].y) + parea[3].src_[0].x;
+			x++)
+		{
+
+			int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+			int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+			pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+			pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+			pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+		}
+	}
+	for (int y = parea[3].src_[2].y; y <= parea[3].src_[1].y; y++)
+	{
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[3].src_, area[3].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+		for (int x = parea[3].src_[2].x;
+			x <= (y - parea[3].src_[1].y)*(parea[3].src_[2].x - parea[3].src_[1].x) / (parea[3].src_[2].y - parea[3].src_[1].y) + parea[3].src_[1].x;
+			x++)
+		{
+			int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+			int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+			pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+			pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+			pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+		}
+	}
+
+
+	for (int k = 4; k < 6; k++)
+	{
+
+		Mat C = Mat::zeros(2, 3, CV_32FC1);
+		C = getAffineTransform(area[k].src_, area[k].dest_);
+		double pos[2][3];
+		for (int i = 0; i < 2; i++)
+		{
+			for (int j = 0; j < 3; j++)
+			{
+				pos[i][j] = C.at<double>(i, j);
+			}
+		}
+		for (int y = parea[k].src_[0].y; y <= parea[k].src_[2].y; y++)
+		{
+			for (int x = (y - parea[k].src_[0].y)*(parea[k].src_[1].x - parea[k].src_[0].x) / (parea[k].src_[1].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x <= (y - parea[k].src_[0].y)*(parea[k].src_[2].x - parea[k].src_[0].x) / (parea[k].src_[2].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x++)
+			{
+				int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+				int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+				pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+				pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+				pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+			}
+		}
+
+		for (int y = parea[k].src_[2].y; y <= parea[k].src_[1].y; y++)
+		{
+			for (int x = (y - parea[k].src_[0].y)*(parea[k].src_[1].x - parea[k].src_[0].x) / (parea[k].src_[1].y - parea[k].src_[0].y) + parea[k].src_[0].x;
+				x <= (y - parea[k].src_[1].y)*(parea[k].src_[2].x - parea[k].src_[1].x) / (parea[k].src_[2].y - parea[k].src_[1].y) + parea[k].src_[1].x;
+				x++)
+			{
+				int row = pos[0][0] * x + pos[0][1] * y + pos[0][2];
+				int col = pos[1][0] * x + pos[1][1] * y + pos[1][2];
+				pic.at<Vec3b>(col, row)[0] = src.at<Vec3b>(y, x)[0];
+				pic.at<Vec3b>(col, row)[1] = src.at<Vec3b>(y, x)[1];
+				pic.at<Vec3b>(col, row)[2] = src.at<Vec3b>(y, x)[2];
+			}
+
+		}
+
+
+	}
+	//cv::imwrite("D:\\1.1.jpg", pic);
+	cv::imshow("pic", pic);
+}
+
+
+void sz_1(cv::Mat &src, int thresh)
+{
+
+
+	vector<Point2f> keyPoint;//restore 
+
+	string names = exeFullPath() + "\\model\\seeta_fd_frontal_v1.0.bin";
+	seeta::FaceDetection detector(names.data());//导入bin文件
+	detector.SetMinFaceSize(40);//参数
+	detector.SetScoreThresh(2.f);//参数
+	detector.SetImagePyramidScaleFactor(0.8f);//参数
+	detector.SetWindowStep(4, 4);//参数
+	cv::Mat img_gray;
+	cv::cvtColor(src, img_gray, cv::COLOR_BGR2GRAY);//灰度化
+	seeta::ImageData img_data;
+	img_data.data = img_gray.data;
+	img_data.width = img_gray.cols;
+	img_data.height = img_gray.rows;
+	img_data.num_channels = 1;
+	cv::Rect face_rect;
+	std::vector<seeta::FaceInfo> faces = detector.Detect(img_data);//导入灰度化后的图像
+	if (faces.size() < 1)
+		return;
+	cout << "sss" << endl;
+	cv::Rect face_sk;
+	face_sk.x = faces[0].bbox.x;
+	face_sk.y = faces[0].bbox.y;
+	face_sk.height = faces[0].bbox.height;
+	face_sk.width = faces[0].bbox.width;
+
+	ldmarkmodel modelt("../model/hction.xml");
+	std::string modelFilePath = "F:\\test\\Project1\\Project1\\model\\landmark-model.bin";
+	load_ldmarkmodel(modelFilePath, modelt);
+	std::vector<cv::Mat> current_shape(MAX_FACE_NUM);
+	modelt.face_zkd = face_sk;
+
+	modelt.track(src, current_shape);
+	cv::Vec3d eav;
+	modelt.EstimateHeadPose(current_shape[0], eav);
+	//modelt.drawPose(Image, current_shape[0], 50);
+	int x, y;
+	std::vector<cv::Point> points;
+	cv::Point tem;
+	cv::Mat tubao(cv::Size(300, 400), CV_8UC1, cv::Scalar(0));
+	for (int i = 0; i < MAX_FACE_NUM; i++) {
+		if (!current_shape[i].empty()) {
+
+			int numLandmarks = current_shape[i].cols / 2;
+			for (int j = 0; j < numLandmarks; j++) {
+				int x = current_shape[0].at<float>(j);
+				int y = current_shape[0].at<float>(j + numLandmarks);
+
+				//cv::circle(Image, cv::Point(x, y), 0, cv::Scalar(0, 0, 255), -1);//Point里面存储了人脸关键点信息
+				keyPoint.push_back(Point2f(x, y));
+			}
+
+		}
+	}
+
+	{
+		area[0].src_[0] = keyPoint[2];
+		area[0].src_[1] = Point(keyPoint[4].x, keyPoint[5].y);
+		area[0].src_[2] = keyPoint[8];
+
+		area[1].src_[0] = keyPoint[30];
+		area[1].src_[1] = keyPoint[2];
+		area[1].src_[2] = keyPoint[4];
+
+		area[2].src_[0] = keyPoint[30];
+		area[2].src_[1] = keyPoint[4];
+		area[2].src_[2] = keyPoint[8];
+
+		area[3].src_[0] = keyPoint[30];
+		area[3].src_[1] = keyPoint[8];
+		area[3].src_[2] = keyPoint[12];
+
+		area[4].src_[0] = keyPoint[30];
+		area[4].src_[1] = keyPoint[12];
+		area[4].src_[2] = keyPoint[14];
+
+		area[5].src_[0] = keyPoint[14];
+		area[5].src_[1] = keyPoint[8];
+		area[5].src_[2] = Point(keyPoint[12].x, keyPoint[11].y);
+	}
+
+	mls(keyPoint, 5, area);
+
+
+	thinFace(src, area);//瘦脸
+
+}
+
+bool hair_detact(cv::Mat src)
+{
+	int R, G, B;
+	int k = 80;
+	int t = 0;
+	double Cb, Cr;
+	cv::Mat huabu(src.size(), CV_8UC1, cv::Scalar(0));
+	for (int i = 0; i < src.rows*0.4; i++)
+		for (int j = 0; j < src.cols; j++)
+		{
+			B = src.at<cv::Vec3b>(i, j)[2];
+			G = src.at<cv::Vec3b>(i, j)[1];
+			R = src.at<cv::Vec3b>(i, j)[0];
+			Cb = 128 - 37.797 * R / 255 - 74.203 * G / 255 + 112 * B / 255;
+			Cr = 128 + 112 * R / 255 - 93.768 * G / 255 - 18.214 * B / 255;
+			if (Cb >= 115 && Cb <= 141 && Cr >= 115 && Cr <= 143 && R < k)
+			{
+				t++;
+			}
+
+		}
+
+	if (t > 500)
+		return true;
+	else
+		return false;
+}
+
+void mustpoint(cv::Mat src, cv::Mat rgb_colar, cv::Mat matting_result_bw)
+{
+
+	string names = exeFullPath() + "\\model\\seeta_fd_frontal_v1.0.bin";
+	seeta::FaceDetection detector(names.data());//导入bin文件
+	detector.SetMinFaceSize(40);//参数
+	detector.SetScoreThresh(2.f);//参数
+	detector.SetImagePyramidScaleFactor(0.8f);//参数
+	detector.SetWindowStep(4, 4);//参数
+	cv::Mat img_gray;
+	cv::cvtColor(src, img_gray, cv::COLOR_BGR2GRAY);//灰度化
+	seeta::ImageData img_data;
+	img_data.data = img_gray.data;
+	img_data.width = img_gray.cols;
+	img_data.height = img_gray.rows;
+	img_data.num_channels = 1;
+	cv::Rect face_rect;
+	std::vector<seeta::FaceInfo> faces = detector.Detect(img_data);//导入灰度化后的图像
+	cout << "keypoint"<<faces.size() << endl;
+	if (faces.size() < 1)
+		return;
+	
+	cv::Rect face_sk;
+	face_sk.x = faces[0].bbox.x;
+	face_sk.y = faces[0].bbox.y;
+	face_sk.height = faces[0].bbox.height;
+	face_sk.width = faces[0].bbox.width;
+
+	ldmarkmodel modelt("../model/hction.xml");
+	std::string modelFilePath = "F:\\test\\Project1\\Project1\\model\\landmark-model.bin";
+	load_ldmarkmodel(modelFilePath, modelt);
+	std::vector<cv::Mat> current_shape(MAX_FACE_NUM);
+	modelt.face_zkd = face_sk;
+
+	modelt.track(src, current_shape);
+	cv::Vec3d eav;
+	modelt.EstimateHeadPose(current_shape[0], eav);
+	//modelt.drawPose(Image, current_shape[0], 50);
+	int x, y;
+	std::vector<cv::Point> points;
+	cv::Point tem;
+	for (int i = 0; i < MAX_FACE_NUM; i++) {
+		if (!current_shape[i].empty()) {
+
+			int numLandmarks = current_shape[i].cols / 2;
+			
+			for (int j = 0; j < numLandmarks; j++) {
+				int x = current_shape[i].at<float>(j);
+				int y = current_shape[i].at<float>(j + numLandmarks);
+				//cout << Point(x, y) << endl;
+				cv::circle(src, cv::Point(x, y), 2, cv::Scalar(0, 0, 255), -1);//Point里面存储了人脸关键点信息
+			}
+		}
+		
+	}
+	imshow("srcs", src);
+}
+
+void beat_white(cv::Mat src, int beat)
+{
+	double fenmu = log(beat);
+	for (int i = 0; i < src.rows; i++)
+		for (int j = 0; j < src.cols; j++)
+		{
+			double b = src.at<cv::Vec3b>(i, j)[0] / 255.0;
+			double g = src.at<cv::Vec3b>(i, j)[1] / 255.0;
+			double r = src.at<cv::Vec3b>(i, j)[2] / 255.0;
+			src.at<cv::Vec3b>(i, j)[0] = log(b*(beat - 1) + 1) / (fenmu) * 255;
+			src.at<cv::Vec3b>(i, j)[1] = log(g*(beat - 1) + 1) / (fenmu) * 255;
+			src.at<cv::Vec3b>(i, j)[2] = log(r*(beat - 1) + 1) / (fenmu) * 255;
+		}
+
+}
+
+bool deleteLine(cv::Mat &src)//输入一张二值图判断是否需要闭运算去直线,前景是黑色
+{
+	cv::Mat tmp = src.clone();
+	bitwise_not(tmp, tmp);
+
+#if 0
+	Canny(tmp, tmp, 50, 200, 3); // Apply canny edge//可选canny算子
+#endif
+									 // Create and LSD detector with standard or no refinement.
+#if 1
+	Ptr<cv::LineSegmentDetector> ls = createLineSegmentDetector(cv::LSD_REFINE_STD);//或者两种LSD算法，这边用的是standard的
+#else
+	Ptr<LineSegmentDetector> ls = createLineSegmentDetector(LSD_REFINE_NONE);
+#endif
+	double start = double(cv::getTickCount());
+	vector<Vec4f> lines_std;
+	// Detect the lines
+	ls->detect(tmp, lines_std);//这里把检测到的直线线段都存入了lines_std中，4个float的值，分别为起止点的坐标
+
+
+
+	vector<Vec4f>::iterator it;
+	for (it = lines_std.begin(); it != lines_std.end(); ++it)
+	{
+		if (((int(it->val[3] - it->val[1]) / (it->val[2] - it->val[0] + 0.00001) == 0) && (abs(it->val[2] - it->val[0]) > 25)) ||
+			(((it->val[3] - it->val[1]) / (it->val[2] - it->val[0] + 0.0001) > 100000000) && (abs(it->val[3] - it->val[1]) > 25)))
+		{
+
+			return true;
+		}
+	}
+	return false;
+}
+/*
+RGB_detect 人体皮肤检测
+返回值 Mat 类型，提取出被检测的皮肤的图片（凸包）包围
+src 引用类型，最后抠图的结果（白底）
+output_mask 引用类型，人体皮肤像素所在位置，若此处有皮肤，则保存为255，否则为0
+*/
+cv::Mat RGB_detect(cv::Mat &src, cv::Mat &output_mask)
+{
+	output_mask = Mat::zeros(src.size(), CV_8UC1);
+	for (int i = 0; i < src.rows; i++)
+	{
+		for (int j = 0; j < src.cols; j++)
+		{
+			int r = src.at<cv::Vec3b>(i, j)[2];
+			int g = src.at<cv::Vec3b>(i, j)[1];
+			int b = src.at<cv::Vec3b>(i, j)[0];
+
+			if (r > 95 && g > 40 && b > 20 && abs(r - g) > 15 && r > g && r > b && (max(max(r, g), b) - min(min(r, g), b)) > 15)
+			{
+				output_mask.at<uchar>(i, j) = 255;
+			}
+		}
+	}
+
+	vector<vector<Point>> contours;
+	vector<Vec4i> hierarcy;
+	findContours(output_mask, contours, hierarcy, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+	vector<vector<Point>> hull(contours.size());
+	for (int i = 0; i < contours.size(); i++)
+	{
+		convexHull(Mat(contours[i]), hull[i], true);     //查找凸包
+		drawContours(output_mask, hull, i, Scalar(255, 255, 255), -1, 8);
+	}
+
+
+	Mat detect;
+	src.copyTo(detect, output_mask);;
+	return detect;
+
+}
+
+
+cv::Mat ppm(cv::Mat &test_sk, cv::Mat &replace, int flag_FH)
+{
+	float sigma = 1;
+	float k = 150;    // 调整K的值，其它参数不变
+	int min_size = 700;//atoi(argv[3]);
+
+	switch (flag_FH)
+	{
+	case 1: sigma = 1; k = 200; min_size = 1; break;
+	case 2: sigma = 0.5; k = 250; min_size = 250; break;
+	case 10086: sigma = 0.5; k = 200; min_size = 250; break;
+	default:sigma = 0.5; k = 250; min_size = 250; break;
+
+	}
+	int jwidth = test_sk.cols;
+	int jheight = test_sk.rows;
+	image<rgb> *input = new image<rgb>(jwidth, jheight);
+
+	//copy image date form imageData to imput->data
+	uchar *s = (uchar *)input->data;
+
+	for (int ii = 0; ii < jheight; ii++)
+		for (int jj = 0; jj < jwidth; jj++)
+			for (int kk = 2; kk >= 0; kk--)
+			{
+				*(s++) = test_sk.at<cv::Vec3b>(ii, jj)[kk];
+
+			}
+
+	//test_sk.release();
+
+	int num_ccs;// segment number 
+	cv::Mat srcsk(replace.rows, replace.cols, CV_8UC3, cv::Scalar(255, 255, 255));
+	image<rgb> *seg = segment_image(input, sigma, k, min_size, &num_ccs);//segment function
+
+	if (flag_FH == 10086)
+	{
+		uchar *s = (uchar *)seg->data;
+		cv::Mat jpg(seg->height(), seg->width(), CV_8UC3);
+		for (int ii = 0; ii < seg->height(); ii++)
+			for (int jj = 0; jj < seg->width(); jj++)
+				for (int kk = 2; kk >= 0; kk--)
+				{
+					//*(s++) = (img->imageData + img->widthStep*ii))[jj * 3 + kk];
+					jpg.at<cv::Vec3b>(ii, jj)[kk] = *(s++);
+
+				}
+		cachess.clear();
+		return jpg;
+	}
+
+	cv::Mat test = ppmToMat(seg, replace, test_sk, flag_FH);
+	for (int i = 0; i < test.rows; i++)
+		for (int j = 0; j < test.cols; j++)
+		{
+			if (replace.at<uchar>(i, j) == 0)
+				srcsk.at<cv::Vec3b>(i, j) = test_sk.at<cv::Vec3b>(i, j);
+
+		}
+	return srcsk;
+}
+cv::Mat detectAndResize(cv::Mat& img, double& score) {
+	static int ii = 1;
+	string names = exeFullPath() + "\\model\\seeta_fd_frontal_v1.0.bin";
+
+	seeta::FaceDetection detector(names.data());//导入bin文件
+	detector.SetMinFaceSize(40);//参数
+	detector.SetScoreThresh(2.f);//参数
+	detector.SetImagePyramidScaleFactor(0.8f);//参数
+	detector.SetWindowStep(4, 4);//参数
+	cv::Mat imgmini;
+	cv::Rect mini;
+	mini.x = img.cols*0;//这四行 表示缩减待检测区域 为原始的0.64
+	mini.y = img.rows*0;
+	mini.height = img.rows*1;
+	mini.width = img.cols*1;
+	cv::Mat temps = img.clone();
+
+	img = img(mini);//截取待检测区域
+
+	cv::Mat img_gray;
+
+	if (img.channels() != 1)
+		cv::cvtColor(img, img_gray, cv::COLOR_BGR2GRAY);//灰度化
+	else
+		img_gray = img;
+
+	cv::Mat centerROI, centerGray, cutROI, reImg;	//中间格区域ROI，中间格灰度
+	cv::Rect centerRect, cutRect; //
+
+	seeta::ImageData img_data;
+	img_data.data = img_gray.data;
+	img_data.width = img_gray.cols;
+	img_data.height = img_gray.rows;
+	img_data.num_channels = 1;
+	cv::Rect face_rect;
+	Rect rects[2];
+	std::vector<seeta::FaceInfo> faces = detector.Detect(img_data);//导入灰度化后的图像
+	int32_t num_face = static_cast<int32_t>(faces.size());//检测出人脸的个数
+	cout << "faces.size()=" << faces.size() << endl;
+	if (num_face != 0) {
+		//cout << endl << "  faces.size()  " << num_face << "  faces[0].scorce  " << faces[0].score << endl;
+		score = faces[0].score;//检测到人脸
+		for (int32_t i = 0; i < 2; i++) {//以下是截取过程，获取截取的图像
+			face_rect.x = faces[i].bbox.x - faces[i].bbox.width*1.5;
+			face_rect.y =faces[i].bbox.y - faces[i].bbox.width*1.5;
+
+			face_rect.width = faces[i].bbox.width*4;
+			face_rect.height = faces[i].bbox.width * 6;
+			Rect rect(face_rect.x, face_rect.y, face_rect.width, face_rect.height);
+			//cv::rectangle(img, rect, Scalar(255, 0, 0), 1, LINE_8, 0);
+			rects[i] = rect;
+		}
+
+		int zuo_x = min(rects[0].x, rects[1].x);
+		int zuo_y = min(rects[0].y, rects[1].y);
+		int xia_x = max(rects[0].x + rects[0].width, rects[1].x + rects[1].width);
+		int xia_y = max(rects[0].y + rects[0].height, rects[1].y + rects[1].height);
+		zuo_x = max(0, zuo_x);
+		zuo_y = max(0, zuo_y);
+		int width = min(img.cols - zuo_x, xia_x - zuo_x);
+		int heigh = min(img.rows - zuo_y, xia_y - zuo_y);
+		Rect big_rect(zuo_x, zuo_y, width, heigh);
+		//cv::rectangle(img, big_rect, Scalar(0, 255, 0), 1, LINE_8, 0);
+		Mat cut = img(big_rect).clone();
+		
+		double beta = width * 1.0 / 795.0;
+		int final_high = int(heigh*1.0 / beta);
+		resize(cut, cut, Size(795, final_high));
+		cout << final_high << "<<" << endl;
+		if (final_high >= 525)
+		{
+			
+			Rect rect(0, 0, 795, 525);
+			cut = cut(rect).clone();
+		}
+		else
+		{
+			Mat bg(Size(795, 525), CV_8UC3, Scalar(0, 255, 0));
+			Rect rect(0, 795 - final_high, 735, final_high);
+			cut.copyTo(bg(rect));
+			cut = bg;
+		}
+		imshow("cut", cut);
+		imwrite("C:\\Users\\HASEE\\Desktop\\re\\" + to_string(ii) + ".png", cut);
+		ii++;
+	}
+	else {
+		score = 0;//未检测到人脸
+		cout << "未检测到人脸" << endl;
+	}
+
+	return img;
+}
+/******************************************************************************************
+Function:        Mat2Table2D
+Description:     将Mat个数转为Table<RGB>格式
+Input:           Mat矩阵
+Return:          Table<RGB>结果
+*******************************************************************************************/
+Table2D<ezi_RGB> Mat2Table2D(cv::Mat src) {
+	Table2D<ezi_RGB> res(src.cols, src.rows);
+	unsigned char red, green, blue;
+	for (int i = 0; i < src.cols; ++i) {
+		for (int j = 0; j < src.rows; ++j) {
+			blue = (unsigned char)src.data[0 + 3 * (src.cols*j + i)];
+			green = (unsigned char)src.data[1 + 3 * (src.cols*j + i)];
+			red = (unsigned char)src.data[2 + 3 * (src.cols*j + i)];
+			res[i][j] = (ezi_RGB)ezi_RGB(red, green, blue);
+		}
+	}
+	return res;
+}
+
+/******************************************************************************************
+Function:        getReplace
+Description:     根据OneCut的分割label和resize图，得到对应的Mat格式结果
+Input:           resize图,labeling:OneCut分割得到的label图像
+Return:          Mat
+*******************************************************************************************/
+cv::Mat getReplace(Table2D<ezi_RGB>& resize, const Table2D<Label>& labeling, cv::Mat &bwflag, bool BW) {
+
+	int width = resize.getWidth();
+	int height = resize.getHeight();
+
+	Table2D<ezi_RGB> tmp(width, height);
+	for (int i = 0; i < width; ++i) {
+		for (int j = 0; j < height; ++j) {
+			if (labeling[i][j] == OBJ) {
+				if (BW)
+					tmp[i][j] = black;
+				else
+					tmp[i][j] = resize[i][j];
+				bwflag.at<uchar>(j, i) = 0;
+
+			}
+			else
+				tmp[i][j] = white;
+
+		}
+	}
+
+	return bwflag;
+}
+/******************************************************************************************
+Function:        fillOneCut_and_trimap
+Description:     对OneCut分割结果进行填洞操作并生成trimap
+Input:           seg:背景替换结果
+				ori:resize结果图
+				trimap
+*******************************************************************************************/
+void fillhole(cv::Mat &src, cv::Mat &matting_result_bw) {
+	cv::Vec3b black, white;
+	black[0] = 0;
+	black[1] = 0;
+	black[2] = 0;
+	white[0] = 255;
+	white[1] = 255;
+	white[2] = 255;
+
+	cv::Mat grayImage;
+	cv::cvtColor(src, grayImage, CV_BGR2GRAY);
+	cv::Mat bw;
+	cv::threshold(grayImage, bw, 254, 255, CV_THRESH_BINARY);
+
+	vector<vector<cv::Point>> caches;
+	cv::Mat labelImg;
+	bw.convertTo(labelImg, CV_32SC1);
+
+	int label = 0; //start by 1  
+
+	int rows = bw.rows;
+	int cols = bw.cols;
+
+	cv::Mat mask(rows, cols, CV_8UC1);
+	mask.setTo(0);
+	for (int i = 0; i < rows; i++)
+	{
+		int* data = labelImg.ptr<int>(i);
+		uchar *masKptr = mask.ptr<uchar>(i);
+		for (int j = 0; j < cols; j++)
+		{
+			if (data[j] != 255 && mask.at<uchar>(i, j) != 1)
+			{
+				mask.at<uchar>(i, j) = 1;
+				std::stack<std::pair<int, int>> neighborPixels;
+				neighborPixels.push(std::pair<int, int>(i, j)); // pixel position: <i,j>  
+				++label; //begin with a new label  
+				vector<cv::Point> cache;
+				while (!neighborPixels.empty())
+				{
+					//get the top pixel on the stack and label it with the same label  
+					std::pair<int, int> curPixel = neighborPixels.top();
+					int curY = curPixel.first;
+					int curX = curPixel.second;
+					labelImg.at<int>(curY, curX) = label;
+					cv::Point tem;
+					tem.x = curY;
+					tem.y = curX;
+					cache.push_back(tem);
+					//pop the top pixel  
+					neighborPixels.pop();
+
+					//push the 4-neighbors(foreground pixels)  
+
+					if (curX - 1 >= 0)
+					{
+						if (labelImg.at<int>(curY, curX - 1) == 0 && mask.at<uchar>(curY, curX - 1) != 1) //leftpixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY, curX - 1));
+							mask.at<uchar>(curY, curX - 1) = 1;
+						}
+					}
+					if (curX + 1 <= cols - 1)
+					{
+						if (labelImg.at<int>(curY, curX + 1) == 0 && mask.at<uchar>(curY, curX + 1) != 1)
+							// right pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY, curX + 1));
+							mask.at<uchar>(curY, curX + 1) = 1;
+						}
+					}
+					if (curY - 1 >= 0)
+					{
+						if (labelImg.at<int>(curY - 1, curX) == 0 && mask.at<uchar>(curY - 1, curX) != 1)
+							// up pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY - 1, curX));
+							mask.at<uchar>(curY - 1, curX) = 1;
+						}
+					}
+					if (curY + 1 <= rows - 1)
+					{
+						if (labelImg.at<int>(curY + 1, curX) == 0 && mask.at<uchar>(curY + 1, curX) != 1)
+							//down pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY + 1, curX));
+							mask.at<uchar>(curY + 1, curX) = 1;
+						}
+					}
+				}
+				caches.push_back(cache);
+			}
+		}
+	}
+	for (auto ff : caches)
+	{
+
+		if (ff.size() <= 3000)
+		{
+			for (auto gg : ff)
+			{
+				matting_result_bw.at<cv::Vec3b>(gg.x, gg.y) = black;
+				src.at<cv::Vec3b>(gg.x, gg.y) = white;
+			}
+
+		}
+	}
+	caches.clear();
+}
+/***************************************/
+/*
+seg : onecut分割以后的图
+ori：原始图，也就是onecut分割之前的图
+trimap：生成的trimap（与补洞结果一致）
+
+*//**************************************/
+void fillOneCut_and_trimap(cv::Mat& seg, const cv::Mat& ori, cv::Mat& trimap) {
+
+	cv::Mat grayImage;
+	cv::cvtColor(seg, grayImage, CV_BGR2GRAY);
+	cv::Mat bw = grayImage.clone();
+	cv::threshold(grayImage, bw, 254, 255, CV_THRESH_BINARY);
+
+	cv::Mat element3 = cv::getStructuringElement(2, cv::Size(8, 8));
+
+	cv::Rect top_f(0, 0, 300, 300);
+
+	cv::Mat bw_top = bw(top_f).clone();
+	cv::morphologyEx(bw_top, bw_top, cv::MORPH_OPEN, element3);
+	bw_top.copyTo(bw(top_f));
+
+	cv::Rect midddle(50, 250, 200, 110);
+	cv::Rect middle2(55, 255, 190, 105);
+	cv::Mat white(400, 300, CV_8UC1, cv::Scalar(255));
+	cv::Mat temp = bw(midddle).clone();
+	temp.copyTo(white(midddle));
+
+	cv::Mat element4 = cv::getStructuringElement(2, cv::Size(20, 20));
+	cv::morphologyEx(white, white, cv::MORPH_OPEN, element4);
+	white(middle2).copyTo(bw(middle2));
+
+	cv::Mat labelImg;
+	bw.convertTo(labelImg, CV_32SC1);
+
+	int label = 0; //start by 1  
+
+	int rows = bw.rows;
+	int cols = bw.cols;
+
+	cv::Mat mask(rows, cols, CV_8UC1);
+	mask.setTo(0);
+	vector< vector<std::pair<int, int>> > pixs;
+
+	for (int i = 0; i < rows; i++)
+	{
+		int* data = labelImg.ptr<int>(i);
+		uchar *masKptr = mask.ptr<uchar>(i);
+		for (int j = 0; j < cols; j++)
+		{
+			if (data[j] == 255 && mask.at<uchar>(i, j) != 1)
+			{
+				mask.at<uchar>(i, j) = 1;
+				std::stack<std::pair<int, int>> neighborPixels;
+				neighborPixels.push(std::pair<int, int>(i, j)); // pixel position: <i,j>  
+				++label; //begin with a new label 
+				vector<std::pair<int, int>> pix;
+				while (!neighborPixels.empty())
+				{
+					//get the top pixel on the stack and label it with the same label  
+					std::pair<int, int> curPixel = neighborPixels.top();
+					pix.push_back(curPixel);
+					int curY = curPixel.first;
+					int curX = curPixel.second;
+					labelImg.at<int>(curY, curX) = label;
+
+					//pop the top pixel  
+					neighborPixels.pop();
+
+					//push the 4-neighbors(foreground pixels)  
+
+					if (curX - 1 >= 0)
+					{
+						if (labelImg.at<int>(curY, curX - 1) == 255 && mask.at<uchar>(curY, curX - 1) != 1) //leftpixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY, curX - 1));
+							mask.at<uchar>(curY, curX - 1) = 1;
+						}
+					}
+					if (curX + 1 <= cols - 1)
+					{
+						if (labelImg.at<int>(curY, curX + 1) == 255 && mask.at<uchar>(curY, curX + 1) != 1)
+							// right pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY, curX + 1));
+							mask.at<uchar>(curY, curX + 1) = 1;
+						}
+					}
+					if (curY - 1 >= 0)
+					{
+						if (labelImg.at<int>(curY - 1, curX) == 255 && mask.at<uchar>(curY - 1, curX) != 1)
+							// up pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY - 1, curX));
+							mask.at<uchar>(curY - 1, curX) = 1;
+						}
+					}
+					if (curY + 1 <= rows - 1)
+					{
+						if (labelImg.at<int>(curY + 1, curX) == 255 && mask.at<uchar>(curY + 1, curX) != 1)
+							//down pixel  
+						{
+							neighborPixels.push(std::pair<int, int>(curY + 1, curX));
+							mask.at<uchar>(curY + 1, curX) = 1;
+						}
+					}
+				}
+
+				if (pix.size() < 6000)
+				{
+					pixs.push_back(pix);
+					for (auto ff : pix)
+					{
+						if (ff.first <= 40)
+							continue;
+						if (ff.first <= 150 && (ff.second < 80 || ff.second>220))
+							continue;
+						seg.at<cv::Vec3b>(ff.first, ff.second) = ori.at<cv::Vec3b>(ff.first, ff.second);
+
+						bw.at<uchar>(ff.first, ff.second) = 0;
+					}
+				}
+
+			}
+		}
+	}
+
+	if (/*deleteLine(bw)*/0) {
+
+		cv::Rect top(0, 0, 300, 10);
+		cv::Mat top_white(10, 300, CV_8UC1, cv::Scalar(255));
+		top_white.copyTo(bw(top));
+		top_white.release();
+
+		cv::Rect left_(0, 0, 10, 200);
+		cv::Mat left_white(200, 10, CV_8UC1, cv::Scalar(255));
+		left_white.copyTo(bw(left_));
+		left_white.release();
+
+		cv::Rect right_(290, 0, 10, 200);
+		cv::Mat right_white(200, 10, CV_8UC1, cv::Scalar(255));
+		right_white.copyTo(bw(right_));
+		right_white.release();
+
+		cv::Rect nei_rect(0, 0, 300, 400);
+
+		cv::Mat nei = bw(nei_rect);
+
+		cv::Mat element = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(1, 15));
+		cv::Mat element2 = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 1));
+
+		cv::morphologyEx(nei, nei, cv::MORPH_CLOSE, element);
+		cv::morphologyEx(nei, nei, cv::MORPH_CLOSE, element2);
+		nei.copyTo(bw(nei_rect));
+	}
+	cv::bitwise_not(bw, bw);//把白色当前景
+	ori.copyTo(seg, bw);
+
+	//fillhole(bw);
+	cv::Rect top(0, 0, 300, 300);
+	cv::Mat fushi = bw(top).clone();
+	cv::Mat pengzhang = bw(top).clone();
+	cv::Mat erodeElement = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15));
+	cv::erode(fushi, fushi, erodeElement);
+	cv::Mat dilateElement = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(15, 15)); // 获得内核
+
+	cv::dilate(pengzhang, pengzhang, dilateElement); // 膨胀函数
+
+	cv::Mat zhongjian = pengzhang - fushi;
+	for (int i = 0; i < fushi.rows; i++)
+	{
+		for (int j = 0; j < fushi.cols; j++)
+		{
+			if ((int)zhongjian.at<uchar>(i, j) == 255)
+			{
+				bw.at<uchar>(i, j) = 128;
+			}
+		}
+	}
+
+	trimap = bw;
+
+}
+/******************************************************************************************
+Function:        TCHAR2STRING
+Description:     TCHAR转string
+Input:           str:待转化的TCHAR*类型字符串
+Return:          转化后的string类型字符串
+*******************************************************************************************/
+std::string TCHAR2STRING(TCHAR* str) {
+	std::string strstr;
+	try
+	{
+		int iLen = WideCharToMultiByte(CP_ACP, 0, str, -1, NULL, 0, NULL, NULL);
+
+		char* chRtn = new char[iLen * sizeof(char)];
+
+		WideCharToMultiByte(CP_ACP, 0, str, -1, chRtn, iLen, NULL, NULL);
+
+		strstr = chRtn;
+	}
+	catch (std::exception e)
+	{
+	}
+
+	return strstr;
+}
+/******************************************************************************************
+Function:        exeFullPath
+Description:     获取当前正执行exe的绝对路径
+Input:           无输入
+Return:          exe所在的绝对路径
+*******************************************************************************************/
+std::string exeFullPath() {
+	TCHAR szFilePath[MAX_PATH + 1] = { 0 };
+	GetModuleFileName(NULL, szFilePath, MAX_PATH);
+	std::string exeFullPath = TCHAR2STRING(szFilePath);
+	int pos = exeFullPath.find_last_of('\\', exeFullPath.length());
+	return exeFullPath.substr(0, pos);
+}
+
+
+/******************************************************************************************
+Function:        Table2D2Mat
+Description:     将Table2D<ezi_RGB>转为Mat格式
+Input:           Table2D<ezi_RGB>数组
+Return:          Mat对象
+*******************************************************************************************/
+cv::Mat Table2D2Mat(Table2D<ezi_RGB>& arr) {
+	cv::Mat res;
+	int width = arr.getWidth();
+	int height = arr.getHeight();
+	res.create(height, width, 16);
+	for (int i = 0; i < width; ++i) {
+		for (int j = 0; j < height; ++j) {
+			res.data[0 + 3 * (width*j + i)] = (int)arr[i][j].b;
+			res.data[1 + 3 * (width*j + i)] = (int)arr[i][j].g;
+			res.data[2 + 3 * (width*j + i)] = (int)arr[i][j].r;
+		}
+	}
+	return res;
+}
+
+
+void beWhite(cv::Mat &image) {
+
+	int table[] = { 0, 2, 5, 7, 10, 12, 14, 17, 19, 21,
+		23, 25, 27, 29, 31, 33, 35, 37, 39, 41,
+		43, 45, 47, 49, 51, 52, 54, 56, 58, 59,
+		61, 63, 64, 66, 68, 69, 71, 73, 74, 76,
+		77, 79, 80, 82, 83, 85, 86, 88, 89, 90,
+		92, 93, 95, 96, 97, 99, 100, 101, 103, 104,
+		105, 106, 108, 109, 110, 111, 113, 114, 115, 116,
+		117, 119, 120, 121, 122, 123, 124, 125, 127, 128,
+		129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
+		139, 141, 142, 143, 144, 145, 146, 147, 148, 148,
+		149, 150, 151, 152, 153, 154, 155, 156, 157, 158,
+		159, 160, 161, 162, 162, 163, 164, 165, 166, 167,
+		168, 169, 169, 170, 171, 172, 173, 174, 174, 175,
+		176, 177, 178, 179, 179, 180, 181, 182, 183, 183,
+		184, 185, 186, 186, 187, 188, 189, 189, 190, 191,
+		192, 192, 193, 194, 195, 195, 196, 197, 198, 198,
+		199, 200, 200, 201, 202, 202, 203, 204, 204, 205,
+		206, 207, 207, 208, 209, 209, 210, 211, 211, 212,
+		212, 213, 214, 214, 215, 216, 216, 217, 218, 218,
+		219, 219, 220, 221, 221, 222, 223, 223, 224, 224,
+		225, 226, 226, 227, 227, 228, 229, 229, 230, 230,
+		231, 231, 232, 233, 233, 234, 234, 235, 235, 236,
+		237, 237, 238, 238, 239, 239, 240, 240, 241, 242,
+		242, 243, 243, 244, 244, 245, 245, 246, 246, 247,
+		247, 248, 248, 249, 249, 250, 250, 251, 251, 252,
+		252, 253, 254, 254, 255, 255 };
+	int value1 = 3, value2 = 1;     //磨皮程度与细节程度的确定
+
+	int dx = value1 * 5;    //双边滤波参数之一  
+	double fc = value1 * 12.5; //双边滤波参数之一  
+	int p = 50; //透明度  
+	cv::Mat temp1, temp2, temp3, temp4;
+	//双边滤波  
+	cv::bilateralFilter(image, temp1, dx, fc, fc);
+
+	temp2 = (temp1 - image + 128);
+
+	//高斯模糊  
+	cv::GaussianBlur(temp2, temp3, cv::Size(2 * value2 - 1, 2 * value2 - 1), 0, 0);
+
+	temp4 = image + 2 * temp3 - 255;
+
+	image = (image*(100 - p) + temp4 * p) / 100;
+
+
+	for (int i = 0; i < image.rows; ++i) {
+		uchar* data = image.ptr<uchar>(i);
+		for (int j = 0; j < image.cols*image.channels(); ++j) {
+			data[j] = table[data[j]];
+		}
+	}
+
+}
+
+/*************************************************
+//  Method:    convertTo3Channels
+//  Description: 将单通道图像转为三通道图像
+//  Returns:   cv::Mat
+//  Parameter: binImg 单通道图像对象
+*************************************************/
+cv::Mat convertTo3Channels(const cv::Mat& binImg)
+{
+	cv::Mat three_channel = cv::Mat::zeros(binImg.rows, binImg.cols, binImg.type());
+	vector<cv::Mat> channels;
+	for (int i = 0; i < 3; i++)
+	{
+		channels.push_back(binImg);
+	}
+	merge(channels, three_channel);
+	return three_channel;
+}
+
+cv::Mat matting(cv::Mat& one_cut_before, cv::Mat &trimap, cv::Mat &one_cut_after, cv::Mat &matting_result_bw)
+{
+	// (optional) exploit the affinity of neighboring pixels to reduce the 
+	// size of the unknown region. please refer to the paper
+	// 'Shared Sampling for Real-Time Alpha Matting'.
+
+	expansionOfKnownRegions(one_cut_before, trimap, 10);
+
+	cv::Mat foreground, alpha;
+	globalMatting(one_cut_before, trimap, foreground, alpha);
+
+	// filter the result with fast guided filter
+	alpha = guidedFilter(one_cut_before, alpha, 10, 1e-5);
+
+	for (int x = 0; x < trimap.cols; ++x)
+		for (int y = 0; y < trimap.rows; ++y)
+		{
+			if (trimap.at<uchar>(y, x) == 0)
+				alpha.at<uchar>(y, x) = 0;
+			else if (trimap.at<uchar>(y, x) == 255)
+				alpha.at<uchar>(y, x) = 255;
+		}
+
+	alpha = convertTo3Channels(alpha);//将alpha转化成三通道的
+	imshow("alpha", alpha);
+	matting_result_bw = alpha.clone();
+
+	alpha.convertTo(alpha, CV_32FC3, 1 / 255.0);//将alpha转化成float类型
+	cv::Mat sk_test = one_cut_before.clone();
+	one_cut_before.convertTo(one_cut_before, CV_32FC3);
+
+	cv::Mat background(alpha.size(), CV_32FC3, cv::Scalar(255, 255, 255));//白色背景的float类型图像
+
+	cv::Mat ones(alpha.size(), CV_32FC3, cv::Scalar(1, 1, 1));
+	//    以下是应用公式   
+	//
+	//    result=alpha.*one_cut_before+(ones-alpha).*background;
+	//
+	cv::Mat first, second, third, result;
+	cv::multiply(alpha, one_cut_before, first);
+	cv::subtract(ones, alpha, second);
+	cv::multiply(second, background, third);
+	cv::add(first, third, result);
+	one_cut_before = sk_test;
+	result.convertTo(result, CV_8UC3);
+	return result;
+}
+/******************************************************************************************
+Function:        showImg
+Description:     将原图和最终的结果在同一个窗口中显示
+Input:           src:原图
+				 res:最终的结果
+*******************************************************************************************/
+
+
+void region_growing(cv::Mat& bw, cv::Mat& src, cv::Mat& Original, int sk_threshold, int sk_number)//第一个参数是mask 
+//第二个参数是one-cut分割结果图 
+//第三个是原始的图像（有背景的） 
+//第四个参数是生长的阈值 也就是像素差值
+//第五个参数是允许生长多少个点。比如一共有48万个像素 可以设置成50000等
+{
+	cv::Point connects[8] = { cv::Point(-1, -1), cv::Point(0, -1), cv::Point(1, -1), cv::Point(1, 0), cv::Point(1, 1), cv::Point(0, 1), cv::Point(-1, 1), cv::Point(-1, 0) };//八邻域
+	cv::Mat sk_test = bw.clone();
+	cvtColor(bw, bw, CV_BGR2GRAY);//灰度化
+	bitwise_not(bw, bw);//反色 把白色当做前景
+	threshold(bw, bw, 120, 255, cv::THRESH_BINARY);//二值化
+
+	cv::Mat tem = bw.clone();//克隆一个bw 因为findContours会改变bw内的数值,
+	vector<vector<cv::Point> > contours;//存储边缘点坐标
+	vector<cv::Vec4i> hierarchy;//存储继承的值
+	findContours(bw, contours, hierarchy, CV_CHAIN_APPROX_SIMPLE, CV_CHAIN_APPROX_NONE);//第一个参数是输入图像 第二个参数存储所有的点的集合 第三个参数表示继承关系 第四个参数表示只检测外部轮廓 第五个参数是把轮廓上所有的点存储
+
+
+	cv::Mat flag;//定义标志 当标志为0是说明未生长 为255说明已经生长
+	cv::Mat srcgray, srcbw;
+
+
+	cvtColor(src, srcgray, CV_BGR2GRAY);//灰度化
+	threshold(srcgray, srcbw, 254, 255, cv::THRESH_BINARY);//二值化
+	bitwise_not(srcbw, srcbw);//反色 把白色当做前景
+	flag = srcbw;//把one-cut分割出来的结果标记 不再生长了
+
+
+	stack<cv::Point> seeds;//栈 用来存放种子点
+	for (auto ff : contours)//画出轮廓
+	{
+		for (auto gg : ff)
+		{
+
+			if (gg.y == 1 || gg.y == (bw.rows - 2) || gg.x == 1 || gg.x == (bw.cols - 2))
+				continue;
+
+			if (src.at<cv::Vec3b>(gg.y, gg.x)[0] != 255 && src.at<cv::Vec3b>(gg.y, gg.x)[1] != 255 && src.at<cv::Vec3b>(gg.y, gg.x)[2] != 255)//条件不成立 说明不是种子点，条件成立 说明模板轮廓压在了切割的图像上，需要进行种子点生长 
+			{
+				vector<cv::Point> cache;
+				seeds.push(gg);
+				while (!seeds.empty())
+				{
+					cv::Point seed = seeds.top();
+					seeds.pop(); 		// 标记为已遍历过的点	
+					flag.at<uchar>(seed.y, seed.x) = 255;
+					//src.at<Vec3b>(seed.y, seed.x) = Original.at<Vec3b>(seed.y, seed.x);  // 生长
+					//遍历8邻域		
+					for (int i = 0; i < 8; i++)
+					{
+						int tmpx = seed.x + connects[i].x;
+						int tmpy = seed.y + connects[i].y;
+
+						if (tmpx < 0 || tmpy < 0 || tmpx >= src.cols || tmpy >= src.rows)
+							continue;
+						int t = abs((int)Original.at<cv::Vec3b>(seed.y, seed.x)[0] - (int)Original.at<cv::Vec3b>(tmpy, tmpx)[0]) + abs((int)Original.at<cv::Vec3b>(seed.y, seed.x)[1] - (int)Original.at<cv::Vec3b>(tmpy, tmpx)[1]) + abs((int)Original.at<cv::Vec3b>(seed.y, seed.x)[2] - (int)Original.at<cv::Vec3b>(tmpy, tmpx)[2]);
+						// 是前景点且没有被标记过的点		
+						if (flag.at<uchar>(tmpy, tmpx) == 0 && t <= sk_threshold)
+						{
+							//src.at<Vec3b>(tmpy, tmpx) = Original.at<Vec3b>(tmpy, tmpx);  // 生长
+							cache.push_back(cv::Point(tmpx, tmpy));
+							flag.at<uchar>(tmpy, tmpx) = 255; // 标记		
+							seeds.push(cv::Point(tmpx, tmpy)); // 种子压栈		
+						}
+					}
+				}
+				if (cache.size() > 0 && cache.size() < sk_number)//如果生长点过多 就舍弃生长
+				{
+					for (auto ff : cache)
+					{
+						src.at<cv::Vec3b>(ff.y, ff.x) = Original.at<cv::Vec3b>(ff.y, ff.x);  // 生长
+					}
+				}
+			}
+
+		}
+	}
+	bw = sk_test;
+}
+cv::Mat twice(cv::Mat& sk_fh, cv::Mat& mask)
+{
+	int all_flag = 10086;
+	cv::Mat bwflag(sk_fh.rows, sk_fh.cols, CV_8UC1, cv::Scalar(255));//onecut分割+所有的图的结果
+	cv::Mat jpg = ppm(sk_fh, bwflag, all_flag);
+
+	int ColorBinSize = 8; // size of color bin
+	int GridConnectivity = 8; // 4, 8 or 16 connect Grid
+	double WeightPotts = 20; // weight of Potts term
+	MAXFLOW maxflowoption = IBFS;
+
+	Table2D<ezi_RGB> reSize = Mat2Table2D(jpg);
+	Table2D<ezi_RGB> box = Mat2Table2D(mask);
+	OneCut onecut(reSize, ColorBinSize, GridConnectivity, maxflowoption); // 8 connect 32 bins per channel
+	onecut.constructbkgraph(box, WeightPotts);
+
+	Table2D<Label> segmentation = onecut.run();
+	cv::Mat replace_10086 = getReplace(reSize, segmentation, bwflag);
+
+	cv::Mat replace(400, 300, CV_8UC3, cv::Scalar(255, 255, 255));
+	for (int i = 0; i < replace_10086.rows; i++)
+		for (int j = 0; j < replace_10086.cols; j++)
+		{
+			if (replace_10086.at<uchar>(i, j) == 0)
+				replace.at<cv::Vec3b>(i, j) = sk_fh.at<cv::Vec3b>(i, j);
+		}
+	return replace;
+}
+void fuse(cv::Mat& matting_result_bw, cv::Mat& background, cv::Mat &result_m, cv::Mat &src)
+{
+	cv::Mat alpha = matting_result_bw.clone();
+	double heng = background.cols;
+	double zong = background.rows;
+	double heng_2 = background.cols;
+	double zong_2 = (heng_2*1.0) / (matting_result_bw.cols*1.0)*matting_result_bw.rows;
+	int tem = (int)zong_2 - zong;
+
+	cv::Size reSize = cv::Size(heng_2, zong_2);
+
+	cv::resize(alpha, alpha, reSize, 0, 0, cv::INTER_NEAREST);
+
+
+	cv::resize(src, src, reSize, 0, 0, cv::INTER_NEAREST);
+
+	if (tem > 0)
+	{
+		cv::Rect R_A(0, 0, heng_2, background.rows);
+		alpha = alpha(R_A).clone();
+		src = src(R_A).clone();
+	}
+	if (tem < 0)
+	{
+		tem = 0 - tem;
+
+		cv::Mat beijing(background.rows, background.cols, CV_8UC3, cv::Scalar(0, 0, 0));   // 构造全为0的图像
+		cv::Rect R_B(0, tem, heng_2, zong_2);
+		alpha.copyTo(beijing(R_B));
+		alpha = beijing.clone();
+
+		cv::Mat beijing2(background.rows, background.cols, CV_8UC3, cv::Scalar(0, 0, 0));
+		src.copyTo(beijing2(R_B));
+		src = beijing2.clone();
+
+	}
+
+	alpha.convertTo(alpha, CV_32FC3, 1 / 255.0);//将alpha转化成float类型
+	cv::Mat sk_test = src.clone();
+	src.convertTo(src, CV_32FC3);
+
+	background.convertTo(background, CV_32FC3);
+
+	cv::Mat ones(alpha.size(), CV_32FC3, cv::Scalar(1, 1, 1));
+	//cv::Mat ones(alpha.size(), CV_32FC3, cv::Scalar(1, 1, 1));
+	//cv::Mat ones(alpha.size(), CV_32FC3, cv::Scalar(1, 1, 1));
+	//    以下是应用公式   
+	//
+	//    result=alpha.*one_cut_before+(ones-alpha).*background;
+	//
+	cv::Mat first, second, third, result;
+	cv::multiply(alpha, src, first);
+	cv::subtract(ones, alpha, second);
+	cv::multiply(second, background, third);
+	cv::add(first, third, result);
+	src = sk_test;
+	result.convertTo(result, CV_8UC3);
+	result_m = result;
+}
+cv::Mat great_detact(Mat& src, double& flag)
+{
+	map<double, Mat> picture;
+	double score = 0;
+	vector<double> scores;
+	cv::Mat beifen = src.clone();
+
+	cv::Mat reImg = detectAndResize(src, score);
+	scores.push_back(score);
+
+	picture[score] = reImg;
+	if (score <= 10)
+	{
+		Mat tmp;
+		flip(beifen, tmp, -1);
+		
+		reImg = detectAndResize(tmp, score);
+		scores.push_back(score);
+		picture[score] = reImg;
+		
+
+		transpose(beifen, tmp);
+		cv::flip(tmp, tmp, 1);//right
+		
+		reImg = detectAndResize(tmp, score);
+		scores.push_back(score);
+		picture[score] = reImg;
+		
+
+		cv::transpose(beifen, tmp);
+		cv::flip(tmp, tmp, 0);//left
+		
+		reImg = detectAndResize(tmp, score);
+		scores.push_back(score);
+		picture[score] = reImg;
+		
+	}
+	sort(scores.begin(), scores.end());
+	double biggest = scores[scores.size() - 1];
+
+	flag = biggest;
+	return picture[biggest];
+	
+	
+}
+/******************************************************************************************
+Function:        result_img
+Description:     读取原始图片，进行OneCut，fill，matting等一系列操作，并显示最终结果
+Input:           fileName:文件名（除去后缀名）
+*******************************************************************************************/
+void result_img(std::string filePath, std::string fileName) {
+	
+	string ss_sk = filePath;
+	cv::Mat src = cv::imread(ss_sk);
+	
+	double score = 0;
+
+	Mat reImg = great_detact(src, score);
+	imshow("reImg", reImg);
+	return;
+	if (score > 2) {
+
+
+		cv::Mat sk_fh = reImg.clone();
+
+		cv::Mat yy;
+		Table2D<ezi_RGB> reSize = Mat2Table2D(reImg);
+		int ColorBinSize = 8; // size of color bin
+		int GridConnectivity = 8; // 4, 8 or 16 connect Grid
+		double WeightPotts = 20; // weight of Potts term
+		MAXFLOW maxflowoption = IBFS; // either use BK or IBFS algorithm. BK is NOT recommended here.
+		OneCut onecut(reSize, ColorBinSize, GridConnectivity, maxflowoption); // 8 connect 32 bins per channel
+
+		cv::Mat mask(320, 240, CV_8UC3, cv::Scalar(0, 0, 0));
+		for (int i = 0; i < 320; ++i) {
+			for (int j = 0; j < 240; ++j) {
+				mask.at<cv::Vec3b>(i, j)[0] = array_320_240[i][j];
+				mask.at<cv::Vec3b>(i, j)[1] = array_320_240[i][j];
+				mask.at<cv::Vec3b>(i, j)[2] = array_320_240[i][j];
+			}
+		}
+		cv::resize(mask, mask, cv::Size(300, 400), CV_INTER_NN);//最邻近插值
+		Table2D<ezi_RGB> box = Mat2Table2D(mask);
+
+		onecut.constructbkgraph(box, WeightPotts);
+		cv::Mat bwflag(mask.rows, mask.cols, CV_8UC1, cv::Scalar(255));//onecut分割+所有的图的结果
+		Table2D<Label> segmentation = onecut.run();
+		cv::Mat replace = getReplace(reSize, segmentation, bwflag);
+
+		cv::Vec3b white; white[0] = 255; white[1] = 255; white[2] = 255;
+		int bottom_first = 0;
+		int bottom_second = 0;
+		for (int i = 0; i < 300; i++)
+		{
+			if (sk_fh.at<cv::Vec3b>(399, i) == white)
+				bottom_first++;
+			if (bwflag.at<uchar>(399, i) == 255)
+			{
+				bottom_second++;
+			}
+		}
+
+		if (bottom_first != 300 && bottom_second >= 80)
+		{
+
+			replace = twice(sk_fh, mask);
+
+			cv::Mat baidi(215, 300, CV_8UC3, cv::Scalar(255, 255, 255));
+			cv::Rect top(0, 0, 300, 215);
+			baidi.copyTo(replace(top));
+
+			for (int i = 0; i < 215; i++)
+				for (int j = 0; j < sk_fh.cols; j++)
+				{
+					if (bwflag.at<uchar>(i, j) == 0)
+						replace.at<cv::Vec3b>(i, j) = sk_fh.at<cv::Vec3b>(i, j);
+				}
+
+		}
+		else {
+			cout << "zhengchang" << endl;
+			cv::Mat beifen = replace.clone();
+
+			int flag_FH = 0;//1 代表头发细节区域。2代表脖子细节区域 。3代表全图
+
+			replace = ppm(sk_fh, bwflag, flag_FH);//第一个参数是原图。第二个参数应该是onecut+内轮廓区域
+			beifen = bwflag;
+
+
+
+			cv::Rect bozhi(0, 80, 300, 320);
+			cv::Mat bozhi_flag = beifen(bozhi);
+			cv::Mat bozhi_src = sk_fh(bozhi);
+			flag_FH = 2;
+			cv::Mat test_ppm2 = ppm(bozhi_src, bozhi_flag, flag_FH);
+			test_ppm2.copyTo(replace(bozhi));
+			test_ppm2.release();
+
+
+			if (!hair_detact(replace))
+			{
+
+				cv::Rect hair(0, 0, 300, 200);
+				cv::Mat hair_flag = beifen(hair);
+				cv::Mat hair_src = sk_fh(hair);
+				flag_FH = 1;
+				cv::Mat hair_ppm = ppm(hair_src, hair_flag, flag_FH);
+				hair_flag.copyTo(beifen(hair));
+				hair_ppm.copyTo(replace(hair));
+			}
+
+
+		}
+		cv::Mat trimap;
+		imshow("replace", replace);
+
+		fillOneCut_and_trimap(replace, reImg, trimap);
+
+
+
+		cv::Mat matting_result_bw;
+		cv::Mat result = matting(reImg, trimap, replace, matting_result_bw);
+
+
+
+
+		//mustpoint(sk_fh, result, matting_result_bw);
+		fillhole(result, matting_result_bw);
+
+		cv::Mat background(cv::Size(300, 400), CV_8UC3, cv::Scalar(0, 0, 255));//白色背景的float类型图像
+		//cv::Mat background = cv::imread("C:\\Users\\Administrator\\Desktop\\picture.jpg");
+
+		//cv::resize(background, background, cv::Size(100, 133),0,0,cv::INTER_NEAREST);
+
+		cv::Mat test;
+		//beat_white(result,5);
+
+		fuse(matting_result_bw, background, test, result);
+		//cv::imwrite(exeFullPath() + "\\compare3\\" + fileName + ".jpg", test);
+
+		cv::imshow("test", test);
+		//sz_1(test, 5);
+
+
+		bwflag.release();
+
+		result.release();
+
+		sk_fh.release();
+		
+		src.release();
+		reImg.release();
+		replace.release();
+		trimap.release();
+		mask.release();
+
+		std::cout << " done\n";
+		bottom_first = 0;
+		bottom_second = 0;
+	}
+	else {
+		printf("未检测到人脸！\n");
+	}
+}
+#endif
