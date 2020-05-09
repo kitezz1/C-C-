@@ -23,7 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "cJSON.h"
-
+#include <string.h>
 /* Parse text to JSON, then render back to text, and print! */
 void doit(char *text)
 {
@@ -41,14 +41,15 @@ void doit(char *text)
 }
 
 /* Read a file, parse, render back, etc. */
-void dofile(char *filename)
+char* dofile(char *filename, long *len)
 {
-	FILE *f;long len;char *data;
+	FILE *f;char *data;
 	
-	f=fopen(filename,"rb");fseek(f,0,SEEK_END);len=ftell(f);fseek(f,0,SEEK_SET);
-	data=(char*)malloc(len+1);fread(data,1,len,f);fclose(f);
-	doit(data);
-	free(data);
+	f=fopen(filename,"rb");fseek(f,0,SEEK_END);*len=ftell(f);fseek(f,0,SEEK_SET);
+	data=(char*)malloc(*len);fread(data,1,*len,f);fclose(f);
+	//doit(data);
+	//free(data);
+	return data;
 }
 
 /* Used by some code below as an example datatype. */
@@ -73,7 +74,10 @@ void create_objects()
 	
 	/* Our "Video" datatype: */
 	root=cJSON_CreateObject();	
-	cJSON_AddItemToObject(root, "name", cJSON_CreateString("Jack (\"Bee\") Nimble"));
+	//cJSON_AddItemToObject(root, "name", cJSON_CreateString("Jack (\"Bee\") Nimble"));
+	
+	cJSON_AddStringToObject(root, "name", "Jack (\"Bee\") Nimble");
+	printf("\n>>>>>>>>>>>>>>>\n");
 	printf("\n>>>>>>>>>>>>>>>\n");
 
 	char *sout = cJSON_Print(root);
@@ -148,12 +152,12 @@ int main (int argc, const char * argv[]) {
 	char text5[]="[\n	 {\n	 \"precision\": \"zip\",\n	 \"Latitude\":  37.7668,\n	 \"Longitude\": -122.3959,\n	 \"Address\":   \"\",\n	 \"City\":      \"SAN FRANCISCO\",\n	 \"State\":     \"CA\",\n	 \"Zip\":       \"94107\",\n	 \"Country\":   \"US\"\n	 },\n	 {\n	 \"precision\": \"zip\",\n	 \"Latitude\":  37.371991,\n	 \"Longitude\": -122.026020,\n	 \"Address\":   \"\",\n	 \"City\":      \"SUNNYVALE\",\n	 \"State\":     \"CA\",\n	 \"Zip\":       \"94085\",\n	 \"Country\":   \"US\"\n	 }\n	 ]";
 
 	/* Process each json textblock by parsing, then rebuilding: */
-	doit(text1);
+	/*doit(text1);
 	doit(text2);	
 	doit(text3);
 	doit(text4);
 	doit(text5);
-
+	*/
 	/* Parse standard testfiles: */
 /*	dofile("../../tests/test1"); */
 /*	dofile("../../tests/test2"); */
@@ -162,7 +166,19 @@ int main (int argc, const char * argv[]) {
 /*	dofile("../../tests/test5"); */
 
 	/* Now some samplecode for building objects concisely: */
-	create_objects();
-	
+	//create_objects();
+	cJSON *root = cJSON_CreateObject();
+	char *out2 = cJSON_Print(root);
+	long len;
+	char *data = dofile("./1.png", &len);
+
+	cJSON_AddFileToObject(root, "image", data, len);
+	FILE *fp = fopen("out.png", "wt");
+	printf("\ndata len=%ld\n", len);
+	cJSON* item = cJSON_GetObjectItem(root, "image");
+	char *img = item->valuestring;
+	cJSON_AddNumberToObject(root, "len", len);
+	printf("%d-----", strcmp(img, data));
+	fwrite(img, len, 1, fp);
 	return 0;
 }
