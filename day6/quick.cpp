@@ -17,7 +17,45 @@ class quick{
 		int find(int array[], int s, int e, int v);
 		bool hasPath(const char* mat, int length, const char* str);
 		bool hasPath(const char* mat, int cols, int rows, const char* str);
+		void findMax(int array[], int cols);
 };
+
+bool maxcore(int array[], int cols, int i, int* length, int mval){
+	cout<<"cols="<<cols<<" i="<<i<<" length="<<*length<<endl;
+	if(*length<=0){
+		*length = array[i];
+		return false;
+	}
+	bool haspath = false;
+	if (i<cols){
+		*length = *length+array[i];
+		int tmp = *length;
+		haspath = maxcore(array, cols, i+1, &tmp, mval);
+
+		cout<<"haspath="<<haspath<<" length="<<tmp<<endl;
+		if(!haspath)
+			*length = *length - array[i];
+	}
+	return haspath;
+	
+	
+}
+void quick::findMax(int array[], int cols){
+	if(array==nullptr || cols<0)
+		return;
+	int mval = -1000000;
+	int length = 0;
+	for(int i=0; i<cols; i++){
+		//length = 0;
+		if(maxcore(array, cols, i, &length, mval))
+		{
+			length = 0;
+		}
+		mval = max(length, mval);
+		cout<<mval<<"++"<<endl;
+	}
+	cout<<mval<<endl;
+}
 bool pathCore(const char* mat, int cols, int rows, int col, int row, const char* str, int length, bool* visit){
 	if(str[length]=='\0')
 		return true;
@@ -131,8 +169,9 @@ int main(){
 	const char* mat="abtgcfcsjdeh\0";
 	const char* str="jd\0";
 	//cout<<q.hasPath(mat, 12, str)<<endl;
-	cout<<num(10)<<endl;
-	
+	//cout<<num(10)<<endl;
+	int array[]={1, -2, 3, 10, -4, 7, 2,-5};
+	q.findMax(array, 8);
 	return 0;
 }
 
