@@ -71,8 +71,97 @@ int len(const char* str){
 	}
 	return max_;
 }
+int find_two(int array[], int &star, int &end, int val){
+	if(array==nullptr || star <0 || end <0 || star > end)
+		return 0;
+
+	while(star < end){
+		cout<<star<<" "<< end <<endl;
+		if(array[star]+array[end]==val)
+			return 1;
+		if(array[star]+array[end]>val){
+			end = end-1;
+			continue;
+		}
+		if(array[star]+array[end]<val){
+			star = star+1;
+			continue;
+		}
+	}
+	return 0;
+	
+}
+void find_2(int star, int end, int val){
+	
+	if(star<0 || end < 0 || star >=end)
+		return;
+	int i=0;
+	int tmp=0;
+	while(star<=(val/2))
+	{
+		cout<<star<<" -"<<end<<endl;
+		tmp=0;
+		for(i=star;i<=end;i++)
+			tmp = tmp+i;
+		if(tmp == val && star!=end){
+			for(i=star;i<=end;i++)
+				cout<<i<<" ";
+			cout<<endl;
+			star = star +1;
+			continue;
+		}
+		if(tmp<val){
+			end = end+1;
+			continue;
+		}
+		if(tmp>val){
+			star = star +1;
+			continue;
+		}
+			
+	}
+}
+void reverse(char*s, char*e){
+	if(s==nullptr || e==nullptr)
+		return;
+	char t;
+	while(s<e){
+		t =*s;
+		*s = *e;
+		*e = t;
+		s++;
+		e--;
+	}
+}
+void rr(const char* str){
+	if(str == nullptr)
+		return;
+	char *t = new char[strlen(str)+1];
+	strcpy(t, str);
+	t[strlen(str)] = '\0';
+
+	reverse(t, t+strlen(str)-1);
+	cout<<t<<endl;
+	char * s=t;
+	char * end = nullptr;
+	for(int i=0;i<strlen(t);i++){
+		end = t+i;
+		if(t[i]==' ')
+		{
+			reverse(s, end-1);
+			s = end+1;
+		}
+	}
+	//reverse(s, end);
+	cout<<t<<endl;
+}
+
 int main(){
-	const char* str = "aaaaaa\0";
-	cout<<len(str)<<endl;
+	const char* str = "i am a student\0";
+	int array[] = {1,2,4,7,11,15};
+	int star = 0;
+	int end = 5;
+	//find_2(1, 2, 15);
+	rr(str);
 }
 

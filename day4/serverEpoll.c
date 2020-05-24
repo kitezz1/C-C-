@@ -17,7 +17,7 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include "wrap.h"
-#define SERV_PORT 5000 
+#define SERV_PORT 52000 
 #define OPEN_MAX 1000
 char *get_mine_type(char *name){
 	char *dot;
