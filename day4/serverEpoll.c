@@ -17,7 +17,8 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include "wrap.h"
-#define SERV_PORT 52000 
+
+#define SERV_PORT 12345 
 #define OPEN_MAX 1000
 char *get_mine_type(char *name){
 	char *dot;
@@ -39,7 +40,7 @@ char *get_mine_type(char *name){
 
 void send_header(int cfd, int code, char *info, char *filetype, int length){
 	//状态行
-	char buf[1024]="";
+	char buf[4096*4]="";
 	int len = 0;
 	len = sprintf(buf, "HTTP/1.1 %d %s\r\n", code, info);
 	send(cfd, buf, len, 0);
@@ -160,7 +161,7 @@ int main(){
 	int i, lfd, cfd, sockfd;
 	int n, num = 0;
 	ssize_t nready, efd, res;
-	char buf[1024*4000], str[INET_ADDRSTRLEN];
+	char buf[1024*100], str[INET_ADDRSTRLEN];
 	socklen_t clilen;
 
 	struct sockaddr_in cliAddr, serverAddr;
@@ -208,8 +209,10 @@ int main(){
 				if (res == -1)
 					perr_exit("epoll_ctl error");
 			} else {
+				memset(buf, sizeof(buf), 0);
 				sockfd = ep[i].data.fd;
-				n = Read(sockfd, buf, 1024);
+				n = Read(sockfd, buf, 1024*100);
+				printf("\n--%d--\n", n);
 				if (n == 0){
 					res = epoll_ctl(efd, EPOLL_CTL_DEL, sockfd, NULL);
 					Close(sockfd);
